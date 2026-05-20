@@ -25,7 +25,104 @@ Many modules contain both a support library AND an IOC application (for testing 
 
 ---
 
-## 2. Directory Structure
+## 2. Creating Modules with makeBaseApp.pl
+
+**Always use `makeBaseApp.pl` to create new EPICS applications and modules.** Do not manually create the `configure/` directory, boilerplate Makefiles, or top-level Makefile. The tool generates all scaffolding correctly and is located at `$(EPICS_BASE)/bin/$(EPICS_HOST_ARCH)/makeBaseApp.pl`.
+
+### 2.1 Usage Synopsis
+
+```
+makeBaseApp.pl -l                          # list available template types
+makeBaseApp.pl -t type [options] [app ...] # create application directories
+makeBaseApp.pl -i -t type [options] [ioc ...]  # create iocBoot directories
+```
+
+### 2.2 Available Template Types
+
+| App Type | Description | Creates |
+|----------|-------------|---------|
+| `ioc` | Minimal IOC application | `<name>App/src/` with `PROD_IOC`, Main.cpp, DBD; `<name>App/Db/` |
+| `support` | Support library module | `<name>App/src/` with `LIBRARY_IOC`, empty DBD; `<name>App/Db/` |
+| `caClient` | Channel Access client programs | `<name>App/` (flat, no `src/` subdir) with `PROD_HOST`, example CA sources |
+| `example` | Full example IOC with records, device support, SNL | `<name>App/src/`, `<name>App/Db/` with extensive examples |
+| `caPerl` | Perl CA client scripts | `<name>App/` with example Perl scripts |
+
+| iocBoot Type | Description |
+|--------------|-------------|
+| `ioc` | Minimal iocBoot directory with st.cmd |
+| `example` | Example iocBoot with detailed st.cmd |
+
+### 2.3 Key Options
+
+| Flag | Description |
+|------|-------------|
+| `-t type` | Template type (from `-l` list). Defaults to `default` (alias for `ioc`). |
+| `-i` | Create iocBoot directories instead of application directories. |
+| `-a arch` | Set IOC architecture for `-i` (e.g., `linux-x86_64`, `vxWorks-68040`). Prompted if omitted. |
+| `-b base` | Set EPICS_BASE path. Auto-detected from `configure/RELEASE`, environment, or script location. |
+| `-p app` | Set the application name for `-i`. Prompted if omitted. |
+| `-T top` | Override template top directory (where templates are found). |
+
+### 2.4 Two-Step Pattern: IOC Application
+
+Most IOC applications are created in two steps -- first the application directories, then the iocBoot directories:
+
+```bash
+# Step 1: Create application (generates configure/, <name>App/, top-level Makefile)
+makeBaseApp.pl -t ioc myApp
+
+# Step 2: Create iocBoot directories (generates iocBoot/iocMyApp/)
+makeBaseApp.pl -i -t ioc myApp
+```
+
+The first invocation creates:
+- `configure/` -- all boilerplate config files with `EPICS_BASE` set
+- `myAppApp/` -- application directory with `src/` and `Db/` subdirectories
+- `Makefile` -- top-level Makefile
+
+The second invocation (`-i`) creates:
+- `iocBoot/Makefile`
+- `iocBoot/iocMyApp/` -- with `Makefile`, `st.cmd`
+
+**The app name argument becomes the directory prefix.** `makeBaseApp.pl -t ioc myApp` creates `myAppApp/`. If you pass multiple names, it creates one `*App/` directory per name.
+
+### 2.5 Single-Step Pattern: Support Module
+
+Support modules typically do not need iocBoot:
+
+```bash
+makeBaseApp.pl -t support mySupport
+```
+
+### 2.6 Single-Step Pattern: Host Client Program
+
+The `caClient` template creates a flat application directory suitable for `PROD_HOST` programs (no `src/` subdirectory, no DBD, no iocBoot):
+
+```bash
+makeBaseApp.pl -t caClient myClient
+```
+
+This is a good starting point for standalone client programs. After creation, replace or modify the generated source files and Makefile as needed (e.g., to use PVXS instead of CA).
+
+### 2.7 Running in an Existing Directory
+
+`makeBaseApp.pl` is designed to be run from the top of the application tree. If `configure/` already exists, it will not overwrite it (EPICS_BASE is read from the existing `configure/RELEASE`). This allows adding new `*App/` directories to an existing module:
+
+```bash
+# Add a second application to an existing module
+makeBaseApp.pl -t ioc secondApp
+```
+
+### 2.8 Important Notes
+
+- The tool must be run from the intended top-level directory of the application.
+- The `-b` flag is only needed if `configure/RELEASE` does not yet exist and `EPICS_BASE` is not in the environment. When creating a brand new application, the tool auto-detects base from its own install location.
+- Template files use `_APPNAME_` as a placeholder that gets replaced with the application name.
+- The `configure/` directory is shared by all `*App/` directories in the same top. It is only created once.
+
+---
+
+## 3. Directory Structure
 
 ### 2.1 IOC Application
 
@@ -88,9 +185,9 @@ mySupport/
 
 ---
 
-## 3. File Templates
+## 4. File Templates
 
-### 3.1 Top-Level Makefile
+### 4.1 Top-Level Makefile
 
 ```makefile
 # Makefile at top of application tree
@@ -123,7 +220,7 @@ iocBoot_DEPEND_DIRS += $(filter %App,$(DIRS))
 include $(TOP)/configure/RULES_TOP
 ```
 
-### 3.2 configure/RELEASE
+### 4.2 configure/RELEASE
 
 ```makefile
 # RELEASE - Location of external support modules
@@ -162,7 +259,7 @@ EPICS_BASE = /path/to/epics/base
 - Module variables must be set BEFORE they are used in other paths.
 - Use `-include` for optional local overrides.
 
-### 3.3 configure/CONFIG
+### 4.3 configure/CONFIG
 
 ```makefile
 # CONFIG - Load build configuration data
@@ -205,7 +302,7 @@ endif
 
 **Do NOT modify this file.** It is boilerplate.
 
-### 3.4 configure/CONFIG_SITE
+### 4.4 configure/CONFIG_SITE
 
 ```makefile
 # CONFIG_SITE
@@ -241,7 +338,7 @@ CHECK_RELEASE = YES
 -include $(TOP)/configure/CONFIG_SITE.local
 ```
 
-### 3.5 configure/RULES, RULES_TOP, RULES_DIRS, RULES.ioc
+### 4.5 configure/RULES, RULES_TOP, RULES_DIRS, RULES.ioc
 
 These are thin wrappers. Do not modify them.
 
@@ -267,7 +364,7 @@ include $(CONFIG)/RULES_DIRS
 include $(CONFIG)/RULES.ioc
 ```
 
-### 3.6 configure/Makefile
+### 4.6 configure/Makefile
 
 ```makefile
 TOP=..
@@ -277,7 +374,7 @@ CONFIGS += $(subst ../,,$(wildcard $(CONFIG_INSTALLS)))
 include $(TOP)/configure/RULES
 ```
 
-### 3.7 .gitignore
+### 4.7 .gitignore
 
 ```
 # Install directories
@@ -311,9 +408,9 @@ O.*/
 
 ---
 
-## 4. Application Makefiles
+## 5. Application Makefiles
 
-### 4.1 App/Makefile (Subdirectory Wrapper)
+### 5.1 App/Makefile (Subdirectory Wrapper)
 
 ```makefile
 TOP = ..
@@ -326,7 +423,7 @@ DIRS += $(wildcard db* *Db*)
 include $(TOP)/configure/RULES_DIRS
 ```
 
-### 4.2 IOC src/Makefile
+### 5.2 IOC src/Makefile
 
 ```makefile
 TOP=../..
@@ -362,7 +459,7 @@ myApp_LIBS += $(EPICS_BASE_IOC_LIBS)
 include $(TOP)/configure/RULES
 ```
 
-### 4.3 Support Library src/Makefile
+### 5.3 Support Library src/Makefile
 
 ```makefile
 TOP=../..
@@ -388,7 +485,7 @@ mySupport_LIBS += $(EPICS_BASE_IOC_LIBS)
 include $(TOP)/configure/RULES
 ```
 
-### 4.4 Combined (Support Library + IOC) src/Makefile
+### 5.4 Combined (Support Library + IOC) src/Makefile
 
 ```makefile
 TOP=../..
@@ -444,7 +541,7 @@ myApp_LIBS += $(EPICS_BASE_IOC_LIBS)
 include $(TOP)/configure/RULES
 ```
 
-### 4.5 Db/Makefile
+### 5.5 Db/Makefile
 
 ```makefile
 TOP=../..
@@ -460,9 +557,9 @@ include $(TOP)/configure/RULES
 
 ---
 
-## 5. Key Makefile Variables
+## 6. Key Makefile Variables
 
-### 5.1 Products and Libraries
+### 6.1 Products and Libraries
 
 | Variable | Description |
 |----------|-------------|
@@ -473,7 +570,7 @@ include $(TOP)/configure/RULES
 | `LOADABLE_LIBRARY` | Dynamically loadable library name |
 | `TESTPROD` | Test programs (not installed) |
 
-### 5.2 Source Files
+### 6.2 Source Files
 
 | Variable | Description |
 |----------|-------------|
@@ -485,7 +582,7 @@ include $(TOP)/configure/RULES
 | `LIB_SRCS` | Sources for all libraries only |
 | `PROD_SRCS` | Sources for all products only |
 
-### 5.3 DBD Files
+### 6.3 DBD Files
 
 | Variable | Description |
 |----------|-------------|
@@ -493,14 +590,14 @@ include $(TOP)/configure/RULES
 | `<name>_DBD` | DBD fragments to concatenate into `<name>.dbd` |
 | `DBDINC` | DBD files that also generate a C header (for record types) |
 
-### 5.4 Database Files
+### 6.4 Database Files
 
 | Variable | Description |
 |----------|-------------|
 | `DB` | Database files to install into `<top>/db/` (.db, .template, .substitutions) |
 | `DB_INSTALLS` | Pre-existing DB files to copy from other locations |
 
-### 5.5 Linking
+### 6.5 Linking
 
 | Variable | Description |
 |----------|-------------|
@@ -511,14 +608,14 @@ include $(TOP)/configure/RULES
 | `$(EPICS_BASE_HOST_LIBS)` | All EPICS base host libraries |
 | `$(EPICS_BASE_PVA_CORE_LIBS)` | PV Access core libraries |
 
-### 5.6 Include Files
+### 6.6 Include Files
 
 | Variable | Description |
 |----------|-------------|
 | `INC` | Header files to install into `<top>/include/` |
 | `INC_<os>` | OS-specific headers |
 
-### 5.7 Build Flags
+### 6.7 Build Flags
 
 | Variable | Description |
 |----------|-------------|
@@ -529,7 +626,7 @@ include $(TOP)/configure/RULES
 | `USR_INCLUDES` | Additional include paths |
 | `<file>_CPPFLAGS` | Flags for one source file only |
 
-### 5.8 Version Generation
+### 6.8 Version Generation
 
 | Variable | Description |
 |----------|-------------|
@@ -538,11 +635,11 @@ include $(TOP)/configure/RULES
 
 ---
 
-## 6. DBD File Format
+## 7. DBD File Format
 
 DBD (Database Definition) files declare record types, device support, drivers, and IOC shell registrations.
 
-### 6.1 Syntax
+### 7.1 Syntax
 
 ```
 # Comment
@@ -554,7 +651,7 @@ variable(variableName)                                     # IOC shell accessibl
 driver(driverName)                                         # Driver registration
 ```
 
-### 6.2 DBD for a Support Module
+### 7.2 DBD for a Support Module
 
 A support module installs a DBD fragment that downstream IOC applications include:
 
@@ -566,7 +663,7 @@ device(ai, INST_IO, devMyAi, "My AI Driver")
 registrar(myCommandsRegister)
 ```
 
-### 6.3 DBD for an IOC Application
+### 7.3 DBD for an IOC Application
 
 The IOC application assembles a composite DBD from `base.dbd` and all support module DBDs:
 
@@ -581,7 +678,7 @@ The build system concatenates these into `myApp.dbd` and auto-generates `myApp_r
 
 **CRITICAL: Never hand-edit `_registerRecordDeviceDriver.cpp` -- it is auto-generated from the composite DBD file.**
 
-### 6.4 Link Types for device() Declarations
+### 7.4 Link Types for device() Declarations
 
 | Link Type | Description | INP/OUT Format |
 |-----------|-------------|----------------|
@@ -593,7 +690,7 @@ The build system concatenates these into `myApp.dbd` and auto-generates `myApp_r
 
 ---
 
-## 7. IOC Main Program
+## 8. IOC Main Program
 
 ```cpp
 /* myAppMain.cpp */
@@ -622,9 +719,9 @@ This file is only compiled for workstation (host) OSs. For vxWorks, use `_SRCS_v
 
 ---
 
-## 8. Startup Script (st.cmd)
+## 9. Startup Script (st.cmd)
 
-### 8.1 Standard Host st.cmd
+### 9.1 Standard Host st.cmd
 
 ```bash
 #!../../bin/linux-x86_64/myApp
@@ -648,7 +745,7 @@ iocInit
 #seq sncExample, "user=myuser"
 ```
 
-### 8.2 st.cmd Ordering Rules
+### 9.2 st.cmd Ordering Rules
 
 The order of commands in st.cmd is critical:
 
@@ -663,7 +760,7 @@ The order of commands in st.cmd is critical:
 
 **CRITICAL: `dbLoadDatabase` and `registerRecordDeviceDriver` MUST come before `dbLoadRecords`. `iocInit` MUST come after all `dbLoadRecords` calls.**
 
-### 8.3 iocBoot/iocMyApp/Makefile
+### 9.3 iocBoot/iocMyApp/Makefile
 
 ```makefile
 TOP = ../..
@@ -675,7 +772,7 @@ include $(TOP)/configure/RULES.ioc
 
 For cross-compiled targets (vxWorks), use `ARCH = <target-arch>` and `TARGETS = cdCommands`.
 
-### 8.4 iocBoot/Makefile
+### 9.4 iocBoot/Makefile
 
 ```makefile
 TOP = ..
@@ -687,7 +784,7 @@ include $(CONFIG)/RULES_DIRS
 
 ---
 
-## 9. Adding Dependencies
+## 10. Adding Dependencies
 
 When adding a support module dependency, three files must be updated consistently:
 
@@ -722,9 +819,9 @@ myApp_LIBS += $(EPICS_BASE_IOC_LIBS)
 
 ---
 
-## 10. Common Operations
+## 11. Common Operations
 
-### 10.1 Adding a New Source File
+### 11.1 Adding a New Source File
 
 ```makefile
 # To a specific product or library:
@@ -742,7 +839,7 @@ myApp_SRCS_DEFAULT += defaultImpl.c
 myApp_SRCS_vxWorks += -nil-
 ```
 
-### 10.2 Adding a New Database File
+### 11.2 Adding a New Database File
 
 In `Db/Makefile`:
 ```makefile
@@ -751,14 +848,14 @@ DB += myTemplate.template
 DB += mySubstitutions.substitutions
 ```
 
-### 10.3 Installing Header Files
+### 11.3 Installing Header Files
 
 ```makefile
 INC += myPublicApi.h
 INC_linux += myLinuxApi.h
 ```
 
-### 10.4 Adding an iocsh Command
+### 11.4 Adding an iocsh Command
 
 1. Write the C source with the iocsh registration pattern (see epics-device-support skill).
 2. Create a `.dbd` file with `registrar(myRegistrar)`.
@@ -770,7 +867,7 @@ DBD += myCommands.dbd
 # Add include "myCommands.dbd" to mySupport.dbd
 ```
 
-### 10.5 Adding a Custom Record Type
+### 11.5 Adding a Custom Record Type
 
 1. Write `xxxRecord.dbd` defining the record type.
 2. Write `xxxRecord.c` implementing record support.
@@ -781,7 +878,7 @@ mySupport_SRCS += xxxRecord.c
 ```
 4. Add `include "xxxRecord.dbd"` and `device()` declaration to the support DBD file.
 
-### 10.6 Adding QSRV (PV Access Server) Support
+### 11.6 Adding QSRV (PV Access Server) Support
 
 ```makefile
 # In src/Makefile:
@@ -795,7 +892,7 @@ endif
 
 ---
 
-## 11. Key Rules and Pitfalls
+## 12. Key Rules and Pitfalls
 
 1. **The composite DBD name must match `PROD_IOC` name.** If `PROD_IOC = myApp`, then `DBD += myApp.dbd` and `myApp_DBD += base.dbd ...`.
 
